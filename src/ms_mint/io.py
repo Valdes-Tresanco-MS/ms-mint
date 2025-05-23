@@ -121,7 +121,7 @@ def mzxml_to_df(
 
     df = df.explode(["mz", "intensity"])
     set_dtypes(df)
-    return df.reset_index(drop=True)[MS_FILE_COLUMNS]
+    return df.reset_index(drop=True)
 
 
 def _extract_mzxml(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -133,14 +133,37 @@ def _extract_mzxml(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary with extracted scan information.
     """
-    return {
+
+    # Function modified to export a dictionary with extracted scan information from either MS1 or MS2
+    ms_level = data["msLevel"]
+
+    ms_data = {
         "scan_id": data["num"],
         "ms_level": data["msLevel"],
-        "polarity": data.get("polarity", None),
+        "polarity": data.get("polarity"),
         "scan_time": data["retentionTime"],
-        "mz": np.array(data["m/z array"]),
-        "intensity": np.array(data["intensity array"]),
+        "mz": data["m/z array"],
+        "intensity": data["intensity array"],
     }
+
+    if ms_level == 2:
+        polarity_str = 'Positive' if data.get("polarity") == '+' else 'Negative'
+        mz_precursor = data['precursorMz'][0]['precursorMz']
+        mz = data["m/z array"][0]
+
+        filterLine_to_ELMAVEN = ' '.join([
+            polarity_str,
+            # 'ESI', 'SRM', 'ms2',
+            f"{mz_precursor:.3f}",
+            f"[{mz:.3f}]"
+        ])
+        ms_data |= {
+            "mz_precursor": mz_precursor,
+            "filterLine": data["filterLine"],
+            "filterLine_to_ELMAVEN": filterLine_to_ELMAVEN
+        }
+
+    return ms_data
 
 
 def mzml_to_pandas_df_pyteomics(fn: Union[str, P], **kwargs) -> Optional[pd.DataFrame]:
@@ -232,6 +255,10 @@ def set_dtypes(df: pd.DataFrame) -> pd.DataFrame:
         ms_level=np.int8,
         scan_time=np.float32,
         intensity=np.int64,
+        # add data types for the new columns from MS2 data
+        mz_precursor=np.float32,
+        filterLine=str,
+        filterLine_to_ELMAVEN=str,
     )
 
     for var, dtype in dtypes.items():
@@ -443,9 +470,19 @@ def convert_ms_file_to_feather(fn: Union[str, P], fn_out: Optional[Union[str, P]
         Path to the generated feather file.
     """
     fn = P(fn)
+    df = ms_file_to_df(fn)
+    if df['ms_level'].unique() == [1]:
+        ms_name = 'ms1'
+    elif df['ms_level'].unique() == [2]:
+        ms_name = 'ms2'
+    else:
+        ms_name = 'msunknown'
+
     if fn_out is None:
         fn_out = fn.with_suffix(".feather")
-    df = ms_file_to_df(fn)
+    # change the filename to add the ms level
+    fn_out = fn_out.with_name(f"{fn_out.stem}_{ms_name}{fn_out.suffix}")
+
     if df is not None:
         df = df.reset_index(drop=True)
         df.to_feather(fn_out)
