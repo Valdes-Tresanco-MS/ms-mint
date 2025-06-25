@@ -70,16 +70,25 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral") -> pd.D
     assert pd.Series(targets.columns).value_counts().max() == 1, pd.Series(targets.columns).value_counts()
 
     cols = targets.columns
-    if "formula" in targets.columns and not "mz_mean" in targets.columns:
+
+    ms_type = 'ms2' if ('mz' in targets.columns and 'polarity' in targets.columns) else 'ms1'
+
+    if "formula" in targets.columns and "mz_mean" not in targets.columns:
         targets["mz_mean"] = formula_to_mass(targets["formula"], ms_mode)
     if "intensity_threshold" not in cols:
         targets["intensity_threshold"] = 0
     if "mz_width" not in cols:
-        targets["mz_width"] = 10
+        targets["mz_width"] = 10 if ms_type == "ms1" else None
     if "target_filename" not in cols:
         targets["target_filename"] = "unknown"
+    if "category" not in cols:
+        targets["category"] = None
     if "rt_unit" not in targets.columns:
         targets["rt_unit"] = "min"
+    if "mz" not in targets.columns:
+        targets["mz"] = None
+    if "polarity" not in targets.columns:
+        targets["polarity"] = None
 
     # Standardize time units use SI abbreviations
     targets["rt_unit"] = targets["rt_unit"].replace("m", "min")
@@ -89,26 +98,32 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral") -> pd.D
     targets["rt_unit"] = targets["rt_unit"].replace("second", "s")
     targets["rt_unit"] = targets["rt_unit"].replace("seconds", "s")
 
+    if "peak_label" not in cols:
+        logging.warning(f'"peak_label" not in cols, assigning new labels:\n{targets}')
+        targets["peak_label"] = [f"C_{i}" for i in range(len(targets))]
+
     for c in ["rt", "rt_min", "rt_max"]:
         if c not in cols:
             targets[c] = None
             targets[c] = targets[c].astype(float)
 
-    if "peak_label" not in cols:
-        logging.warning(f'"peak_label" not in cols, assigning new labels:\n{targets}')
-        targets["peak_label"] = [f"C_{i}" for i in range(len(targets))]
-
     targets["intensity_threshold"] = targets["intensity_threshold"].fillna(0)
     targets["peak_label"] = targets["peak_label"].astype(str)
 
     targets.index = range(len(targets))
-    targets = targets[targets.mz_mean.notna()]
+    targets["ms_type"] = targets.apply(
+        lambda row: "ms2" if pd.notna(row["mz"]) and pd.notna(row["mz_mean"]) else "ms1",
+        axis=1
+    )
+    targets["filterLine"] = targets.apply(
+        lambda row: f"{row['polarity']} {row['mz_mean']} [{row['mz']}]"
+        if row["ms_type"] == "ms2" else None,
+        axis=1
+    )
+    targets = targets[~(targets["mz"].isna() & targets["mz_mean"].isna())]
     targets = targets.replace(np.nan, None)
     fill_missing_rt_values(targets)
     convert_to_seconds(targets)
-
-    if "rt" in targets.columns:
-        targets["rt"] = targets["rt"].astype(float)
 
     return targets[TARGETS_COLUMNS]
 
@@ -120,7 +135,7 @@ def convert_to_seconds(targets: pd.DataFrame) -> None:
         targets: Mint target list to modify in-place.
     """
     for ndx, row in targets.iterrows():
-        if row.rt_unit == "min":
+        if row.rt_unit in ["min", None]:
             targets.loc[ndx, "rt_unit"] = "s"
             if targets.loc[ndx, "rt"]:
                 targets.loc[ndx, "rt"] *= 60.0
@@ -137,7 +152,7 @@ def fill_missing_rt_values(targets: pd.DataFrame) -> None:
         targets: Mint target list to modify in-place.
     """
     for ndx, row in targets.iterrows():
-        if (not row.rt) and (row.rt_min and row.rt_max):
+        if row.ms_type == 'ms1' and row.rt is None and row.rt_min is not None and row.rt_max is not None:
             targets.loc[ndx, "rt"] = np.mean([row.rt_min, row.rt_max])
 
 

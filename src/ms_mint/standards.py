@@ -10,12 +10,17 @@ TARGETS_COLUMNS = [
     "peak_label",
     "mz_mean",
     "mz_width",
+    "mz",
     "rt",
     "rt_min",
     "rt_max",
     "rt_unit",
     "intensity_threshold",
-    "target_filename",
+    "polarity",
+    "filterLine",
+    "ms_type",
+    "category",
+    "target_filename"
 ]
 
 RESULTS_COLUMNS = [
@@ -47,8 +52,9 @@ DEPRECATED_LABELS = {
     "peakLabel": "peak_label",
     "compound": "peak_label",
     "peakMz": "mz_mean",
-    "medRt": "rt",
     "medMz": "mz_mean",
+    "mz_peak": "mz_mean",
+    "medRt": "rt",
     "peakMzWidth[ppm]": "mz_width",
     "rtmin": "rt_min",
     "rtmax": "rt_max",

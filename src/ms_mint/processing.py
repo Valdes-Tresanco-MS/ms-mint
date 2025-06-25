@@ -110,7 +110,13 @@ def process_ms1(df: pd.DataFrame, targets: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with peak integration results.
     """
-    results = _process_ms1_from_df_(df, targets)
+    # filter by ms_level
+    if df['ms_level'].unique()[0] == 1:
+        targets = targets[targets["ms_type"] == 'ms1']
+    else:
+        targets = targets[targets["ms_type"] == 'ms2']
+    # results = _process_ms1_from_df_(df, targets)
+    results = process_ms1_data(df, targets)
     results = pd.DataFrame(results, columns=["peak_label"] + RESULTS_COLUMNS)
     results = pd.merge(targets, results, on=["peak_label"])
     results = results.reset_index(drop=True)
@@ -139,6 +145,116 @@ def _process_ms1_from_df_(df: pd.DataFrame, targets: pd.DataFrame) -> List[List[
     array_data = df[["scan_time", "mz", "intensity"]].values
     result = process_ms1_from_numpy(array_data, array_peaks)
     return result
+
+
+def process_ms1_data(df: pd.DataFrame, targets: pd.DataFrame) -> pd.DataFrame:
+    """Process MS-1 data using DataFrames.
+
+    Args:
+        df: MS1 data DataFrame with columns [scan_time, mz, intensity].
+        targets: DataFrame with peak definitions and columns [mz_mean, mz_width, rt_min, rt_max, intensity_threshold, peak_label].
+
+    Returns:
+        DataFrame with extracted peak data.
+    """
+    results = []
+    pdf = df.copy()
+    for _, target in targets.iterrows():
+
+        if target.filterLine:
+            pdf = df[df["filterLine_to_ELMAVEN"] == target.filterLine]
+
+        sliced = slice_ms1_df(
+            pdf,
+            mz_mean=target.mz_mean,
+            mz_width=target.mz_width,
+            rt_min=target.rt_min,
+            rt_max=target.rt_max,
+            intensity_threshold=target.intensity_threshold,
+        )
+        props = extract_peak_properties(sliced, target.mz_mean)
+        if props is not None:
+            props["peak_label"] = target.peak_label
+            results.append(props)
+
+    return pd.DataFrame(results)
+
+
+def extract_peak_properties(df: pd.DataFrame, mz_mean: float) -> Optional[Dict[str, Any]]:
+    """Extract properties from a filtered MS1 DataFrame slice."""
+    if df.empty:
+        return {
+            col: 0 if col.startswith("peak_area") or col.startswith("peak_") else None
+            for col in RESULTS_COLUMNS
+        }
+
+    grouped = (
+        df[["scan_time", "intensity"]]
+        .copy()
+        .assign(scan_time=lambda x: x["scan_time"].round(2))
+        .groupby("scan_time")["intensity"].max()
+        .reset_index()
+    )
+
+    times = df["scan_time"].values
+    masses = df["mz"].values
+    intensities = df["intensity"].values
+
+    ndx_max = grouped["intensity"].idxmax()
+    top3 = grouped["intensity"].iloc[max(0, ndx_max - 1):ndx_max + 2].sum() // 3
+
+    peak_mass_diff_25pc, peak_mass_diff_50pc, peak_mass_diff_75pc = np.quantile(
+        masses, [0.25, 0.5, 0.75]
+    )
+
+    peak_mass_diff_25pc -= mz_mean
+    peak_mass_diff_50pc -= mz_mean
+    peak_mass_diff_75pc -= mz_mean
+
+    peak_mass_diff_25pc /= 1e-6 * mz_mean
+    peak_mass_diff_50pc /= 1e-6 * mz_mean
+    peak_mass_diff_75pc /= 1e-6 * mz_mean
+
+    return {
+        "peak_area": intensities.sum(),
+        "peak_area_top3": top3,
+        "peak_max": intensities.max(),
+        "peak_min": intensities.min(),
+        "peak_mean": intensities.mean(),
+        "peak_rt_of_max": times[intensities.argmax()],
+        "peak_median": np.median(intensities),
+        "peak_delta_int": np.abs(intensities[0] - intensities[-1]),
+        "peak_n_datapoints": len(df),
+        "peak_mass_diff_25pc": peak_mass_diff_25pc,
+        "peak_mass_diff_50pc": peak_mass_diff_50pc,
+        "peak_mass_diff_75pc": peak_mass_diff_75pc,
+        "peak_shape_rt": ",".join([f"{rt:.4f}" for rt in grouped["scan_time"]]),
+        "peak_shape_int": ",".join([str(int(i)) for i in grouped["intensity"]]),
+        "peak_score": None,
+    }
+
+def slice_ms1_df(
+    df: pd.DataFrame,
+    mz_mean: float,
+    mz_width: float,
+    rt_min: float,
+    rt_max: float,
+    intensity_threshold: float
+) -> pd.DataFrame:
+    """Filter MS1 DataFrame based on peak criteria."""
+    base_mask = (
+        (df["scan_time"] >= rt_min) &
+        (df["scan_time"] <= rt_max) &
+        (df["intensity"] >= intensity_threshold)
+    )
+    if mz_width:  # solo aplicar si mz_width no es None o 0
+        delta_mass = mz_width * mz_mean * 1e-6
+        mz_mask = np.abs(df["mz"] - mz_mean) <= delta_mass
+        mask = base_mask & mz_mask
+    else:
+        mask = base_mask
+
+    return df[mask]
 
 
 def process_ms1_from_numpy(array: np.ndarray, peaks: np.ndarray) -> List[List[Any]]:
@@ -325,10 +441,11 @@ def slice_ms1_array(
     Returns:
         Filtered numpy array containing only data points meeting the criteria.
     """
-    delta_mass = mz_width * mz_mean * 1e-6
     array = array[(array[:, 0] >= rt_min)]
     array = array[(array[:, 0] <= rt_max)]
-    array = array[(np.abs(array[:, 1] - mz_mean) <= delta_mass)]
+    if mz_width:
+        delta_mass = mz_width * mz_mean * 1e-6
+        array = array[(np.abs(array[:, 1] - mz_mean) <= delta_mass)]
     array = array[(array[:, 2] >= intensity_threshold)]
     return array
 
