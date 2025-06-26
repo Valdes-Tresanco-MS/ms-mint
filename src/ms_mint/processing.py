@@ -162,7 +162,7 @@ def process_ms1_data(df: pd.DataFrame, targets: pd.DataFrame) -> pd.DataFrame:
     for _, target in targets.iterrows():
 
         if target.filterLine:
-            pdf = df[df["filterLine_to_ELMAVEN"] == target.filterLine]
+            pdf = df[df["filterLine"] == target.filterLine]
 
         sliced = slice_ms1_df(
             pdf,
