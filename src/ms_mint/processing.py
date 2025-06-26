@@ -216,7 +216,7 @@ def extract_peak_properties(df: pd.DataFrame, mz_mean: float) -> Optional[Dict[s
     peak_mass_diff_75pc /= 1e-6 * mz_mean
 
     return {
-        "peak_area": intensities.sum(),
+        "peak_area": np.trapezoid(intensities, times),
         "peak_area_top3": top3,
         "peak_max": intensities.max(),
         "peak_min": intensities.min(),
