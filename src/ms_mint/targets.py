@@ -71,7 +71,7 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral") -> pd.D
 
     cols = targets.columns
 
-    ms_type = 'ms2' if ('mz' in targets.columns and 'polarity' in targets.columns) else 'ms1'
+    ms_type = 'ms2' if 'filterLine' in targets.columns else 'ms1'
 
     if "formula" in targets.columns and "mz_mean" not in targets.columns:
         targets["mz_mean"] = formula_to_mass(targets["formula"], ms_mode)
@@ -112,12 +112,7 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral") -> pd.D
 
     targets.index = range(len(targets))
     targets["ms_type"] = targets.apply(
-        lambda row: "ms2" if pd.notna(row["mz"]) and pd.notna(row["mz_mean"]) else "ms1",
-        axis=1
-    )
-    targets["filterLine"] = targets.apply(
-        lambda row: f"{row['polarity']} {row['mz_mean']} [{row['mz']}]"
-        if row["ms_type"] == "ms2" else None,
+        lambda row: "ms2" if pd.notna(row["filterLine"]) else "ms1",
         axis=1
     )
     targets = targets[~(targets["mz"].isna() & targets["mz_mean"].isna())]
