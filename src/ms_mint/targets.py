@@ -151,7 +151,7 @@ def fill_missing_rt_values(targets: pd.DataFrame) -> None:
         targets: Mint target list to modify in-place.
     """
     for ndx, row in targets.iterrows():
-        if row.ms_type == 'ms1' and row.rt is None and row.rt_min is not None and row.rt_max is not None:
+        if row.rt is None and row.rt_min is not None and row.rt_max is not None:
             targets.loc[ndx, "rt"] = np.mean([row.rt_min, row.rt_max])
 
 
