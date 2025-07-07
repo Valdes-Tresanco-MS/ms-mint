@@ -203,17 +203,22 @@ def extract_peak_properties(df: pd.DataFrame, mz_mean: float) -> Optional[Dict[s
     ndx_max = grouped["intensity"].idxmax()
     top3 = grouped["intensity"].iloc[max(0, ndx_max - 1):ndx_max + 2].sum() // 3
 
-    peak_mass_diff_25pc, peak_mass_diff_50pc, peak_mass_diff_75pc = np.quantile(
-        masses, [0.25, 0.5, 0.75]
-    )
+    if 'filterLine' in df.columns:
+        peak_mass_diff_25pc = 0
+        peak_mass_diff_50pc = 0
+        peak_mass_diff_75pc = 0
+    else:
+        peak_mass_diff_25pc, peak_mass_diff_50pc, peak_mass_diff_75pc = np.quantile(
+            masses, [0.25, 0.5, 0.75]
+        )
 
-    peak_mass_diff_25pc -= mz_mean
-    peak_mass_diff_50pc -= mz_mean
-    peak_mass_diff_75pc -= mz_mean
+        peak_mass_diff_25pc -= mz_mean
+        peak_mass_diff_50pc -= mz_mean
+        peak_mass_diff_75pc -= mz_mean
 
-    peak_mass_diff_25pc /= 1e-6 * mz_mean
-    peak_mass_diff_50pc /= 1e-6 * mz_mean
-    peak_mass_diff_75pc /= 1e-6 * mz_mean
+        peak_mass_diff_25pc /= 1e-6 * mz_mean
+        peak_mass_diff_50pc /= 1e-6 * mz_mean
+        peak_mass_diff_75pc /= 1e-6 * mz_mean
 
     return {
         "peak_area": np.trapezoid(intensities, times),
