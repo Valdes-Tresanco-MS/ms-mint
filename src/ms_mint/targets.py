@@ -43,7 +43,7 @@ def read_targets(fns: Union[str, List[str]], ms_mode: str = "negative") -> pd.Da
     return targets
 
 
-def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral") -> pd.DataFrame:
+def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral", filename: str = None) -> pd.DataFrame:
     """Standardize target list format and units.
 
     This function:
@@ -80,7 +80,7 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral") -> pd.D
     if "mz_width" not in cols:
         targets["mz_width"] = 10 if ms_type == "ms1" else None
     if "target_filename" not in cols:
-        targets["target_filename"] = "unknown"
+        targets["target_filename"] = filename
     if "category" not in cols:
         targets["category"] = None
     if "rt_unit" not in targets.columns:
