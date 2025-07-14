@@ -292,4 +292,4 @@ def fn_to_label(fn: Union[str, P]) -> str:
     Returns:
         Filename without extension.
     """
-    return P(fn).with_suffix("").name
+    return P(fn).stem[:-4] if P(fn).stem.endswith("_ms1") or P(fn).stem.endswith('ms2') else P(fn).stem

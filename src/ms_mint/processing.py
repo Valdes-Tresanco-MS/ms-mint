@@ -94,7 +94,9 @@ def process_ms1_file(filename: Union[str, P], targets: pd.DataFrame) -> pd.DataF
     results = process_ms1(df, targets)
     results["total_intensity"] = df["intensity"].sum()
     results["ms_file"] = str(filename)
-    results["ms_file_label"] = P(filename).with_suffix("").name
+    results["ms_file_label"] = (P(filename).stem[:-4]
+                                if P(filename).stem.endswith("_ms1") or P(filename).stem.endswith("_ms2")
+                                else P(filename).stem)
     results["ms_file_size_MB"] = os.path.getsize(filename) / 1024 / 1024
     results["peak_score"] = 0  # score_peaks(results)
     return results[MINT_RESULTS_COLUMNS]
