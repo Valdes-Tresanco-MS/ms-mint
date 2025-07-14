@@ -1,6 +1,8 @@
 #src/ms_mint/plotly_tools.py
 
 import logging
+from itertools import cycle
+
 import numpy as np
 import pandas as pd
 import colorlover as cl
@@ -270,7 +272,7 @@ def plotly_peak_shapes(
 
         colors = get_palette_colors(palette, len(unique_hues))
 
-        color_mapping = dict(zip(unique_hues, colors))
+        color_mapping = dict(zip(unique_hues, cycle(colors)))
 
         if color == "ms_file_label":
             hue_column = [color_mapping[fn] for fn in fns]
@@ -365,7 +367,7 @@ def get_palette_colors(palette_name: str, num_colors: int) -> List[str]:
     # Categories in the colorlover package
     categories = ["qual", "seq", "div"]
 
-    num_colors = max(num_colors, 3)
+    num_colors = min(12, max(num_colors, 3))
     # Check in which category our palette resides
     for category in categories:
         if palette_name in cl.scales[f"{num_colors}"][category]:
