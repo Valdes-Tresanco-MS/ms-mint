@@ -36,7 +36,6 @@ def read_targets(fns: Union[str, List[str]], ms_mode: str = "negative") -> pd.Da
         elif fn.endswith(".xlsx"):
             df = pd.read_excel(fn)
         df = standardize_targets(df)
-        df["target_filename"] = P(fn).name
         targets.append(df)
 
     targets = pd.concat(targets)
