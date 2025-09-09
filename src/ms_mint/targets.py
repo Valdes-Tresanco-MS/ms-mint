@@ -89,6 +89,11 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral", filenam
     if "polarity" not in targets.columns:
         targets["polarity"] = None
 
+    if "bookmark" not in cols:
+        targets["bookmark"] = 0
+    if "score" not in cols:
+        targets["score"] = 0
+
     # Standardize time units use SI abbreviations
     targets["rt_unit"] = targets["rt_unit"].replace("m", "min")
     targets["rt_unit"] = targets["rt_unit"].replace("minute", "min")

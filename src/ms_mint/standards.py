@@ -20,7 +20,9 @@ TARGETS_COLUMNS = [
     "filterLine",
     "ms_type",
     "category",
-    "target_filename"
+    "target_filename",
+    "score",
+    "bookmark",
 ]
 
 RESULTS_COLUMNS = [
