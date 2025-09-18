@@ -491,15 +491,12 @@ def convert_ms_file_to_feather(fn: Union[str, P], fn_out: Optional[Union[str, P]
     return str(fn_out)
 
 
-def convert_mzxml_to_parquet(file_path: str, wdir, time_unit='min'):
+def convert_mzxml_to_parquet(file_path: str, time_unit='min'):
     # move converted file to processed folder
     file_path = pathlib.Path(file_path)
-    ms_dir = pathlib.Path(wdir).joinpath("ms_files")
-
     # TODO: is this needed?
     # T.fix_first_emtpy_line_after_upload_workaround(file_path)
 
-    output_file = ms_dir.joinpath(file_path.name).with_suffix(".parquet")
     from pyteomics import mzxml
 
     ms_level = 0
@@ -527,6 +524,7 @@ def convert_mzxml_to_parquet(file_path: str, wdir, time_unit='min'):
 
             ms_data.append(
                 dict(
+                    ms_file_label=file_path.stem,
                     scan_id=int(data.get("num") or 0),  # scan id
                     mz=[float(v) for v in data.get("m/z array", [])],  # mz
                     intensity=[float(v) for v in data.get("intensity array", [])],  # intensity
@@ -538,12 +536,8 @@ def convert_mzxml_to_parquet(file_path: str, wdir, time_unit='min'):
             )
         df = pd.json_normalize(ms_data)
         df = df.explode(["mz", "intensity"])
-        try:
-            df.to_parquet(output_file)
-        except Exception as e:
-            print(f"{e = }")
         os.remove(file_path)
-    return file_path.stem, ms_level, polarity, output_file
+    return file_path.stem, ms_level, polarity, df
 
 
 def convert_ms_file_to_parquet(fn: Union[str, P], fn_out: Optional[Union[str, P]] = None) -> str:
