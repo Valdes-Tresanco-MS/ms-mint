@@ -78,8 +78,9 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral", filenam
         targets["intensity_threshold"] = 0
     if "mz_width" not in cols:
         targets["mz_width"] = 10 if ms_type == "ms1" else None
-    if "target_filename" not in cols:
-        targets["target_filename"] = filename
+
+    targets["source"] = filename
+
     if "category" not in cols:
         targets["category"] = None
     if "rt_unit" not in targets.columns:
@@ -93,6 +94,8 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral", filenam
         targets["bookmark"] = 0
     if "score" not in cols:
         targets["score"] = 0
+    if "preselected_processing" not in cols:
+        targets["preselected_processing"] = True
 
     # Standardize time units use SI abbreviations
     targets["rt_unit"] = targets["rt_unit"].replace("m", "min")
