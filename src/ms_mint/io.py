@@ -492,7 +492,7 @@ def convert_ms_file_to_feather(fn: Union[str, P], fn_out: Optional[Union[str, P]
     return str(fn_out)
 
 
-def convert_mzxml_to_parquet(file_path: str, time_unit='min'):
+def convert_mzxml_to_parquet(file_path: str, time_unit='min', remove_original: bool = False):
     # move converted file to processed folder
     file_path = pathlib.Path(file_path)
     # TODO: is this needed?
@@ -536,12 +536,13 @@ def convert_mzxml_to_parquet(file_path: str, time_unit='min'):
                 )
             )
         df = pd.json_normalize(ms_data)
-        df = df.explode(["mz", "intensity"])
+        df = df.explode(["mz", "intensity"]).reset_index(drop=True)
 
         tmp_dir = tempfile.mkdtemp()
         tmp_fn = os.path.join(tmp_dir, f"{file_path.stem}.parquet")
         df.to_parquet(tmp_fn)
-        os.remove(file_path)
+        if remove_original:
+            os.remove(file_path)
     return file_path.stem, ms_level, polarity, tmp_fn
 
 
