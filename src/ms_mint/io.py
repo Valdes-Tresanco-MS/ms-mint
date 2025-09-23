@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 import pandas as pd
 import numpy as np
@@ -536,8 +537,12 @@ def convert_mzxml_to_parquet(file_path: str, time_unit='min'):
             )
         df = pd.json_normalize(ms_data)
         df = df.explode(["mz", "intensity"])
+
+        tmp_dir = tempfile.mkdtemp()
+        tmp_fn = os.path.join(tmp_dir, f"{file_path.stem}.parquet")
+        df.to_parquet(tmp_fn)
         os.remove(file_path)
-    return file_path.stem, ms_level, polarity, df
+    return file_path.stem, ms_level, polarity, tmp_fn
 
 
 def convert_ms_file_to_parquet(fn: Union[str, P], fn_out: Optional[Union[str, P]] = None) -> str:
