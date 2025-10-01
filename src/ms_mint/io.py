@@ -492,59 +492,6 @@ def convert_ms_file_to_feather(fn: Union[str, P], fn_out: Optional[Union[str, P]
     return str(fn_out)
 
 
-def convert_mzxml_to_parquet(file_path: str, time_unit='min', remove_original: bool = False):
-    # move converted file to processed folder
-    file_path = pathlib.Path(file_path)
-    # TODO: is this needed?
-    # T.fix_first_emtpy_line_after_upload_workaround(file_path)
-
-    from pyteomics import mzxml
-
-    ms_level = 0
-    polarity = '-'
-    time_factor = 60 if time_unit in ['minutes', 'min'] else 1
-
-    with mzxml.read(file_path.as_posix()) as ms_file_data:
-        ms_data = []
-        for i, data in enumerate(ms_file_data, start=1):
-            ms_level = int(data.get("msLevel", 0))
-
-            filterLine_ELMAVEN = None
-            mz_precursor = None
-
-            if ms_level == 2:
-                polarity_str = 'Positive' if data.get("polarity") == '+' else 'Negative'
-                mz_precursor = float(data['precursorMz'][0]['precursorMz'])
-                mz = data["m/z array"][0]
-                filterLine_ELMAVEN = ' '.join([
-                    polarity_str,
-                    # 'ESI', 'SRM', 'ms2',
-                    f"{mz_precursor:.3f}",
-                    f"[{mz:.3f}]"
-                ])
-
-            ms_data.append(
-                dict(
-                    ms_file_label=file_path.stem,
-                    scan_id=int(data.get("num") or 0),  # scan id
-                    mz=[float(v) for v in data.get("m/z array", [])],  # mz
-                    intensity=[float(v) for v in data.get("intensity array", [])],  # intensity
-                    scan_time=float(data.get("retentionTime", 0.0)) * time_factor,  # scan time
-                    mz_precursor=mz_precursor,  # mz precursor
-                    filterLine=data.get("filterLine"),  # filter line
-                    filterLine_ELMAVEN=filterLine_ELMAVEN  # filter line ELMAVEN
-                )
-            )
-        df = pd.json_normalize(ms_data)
-        df = df.explode(["mz", "intensity"]).reset_index(drop=True)
-
-        tmp_dir = tempfile.mkdtemp()
-        tmp_fn = os.path.join(tmp_dir, f"{file_path.stem}.parquet")
-        df.to_parquet(tmp_fn)
-        if remove_original:
-            os.remove(file_path)
-    return file_path.stem, ms_level, polarity, tmp_fn
-
 
 def convert_ms_file_to_parquet(fn: Union[str, P], fn_out: Optional[Union[str, P]] = None) -> str:
     """Convert MS file to parquet format.
@@ -564,3 +511,58 @@ def convert_ms_file_to_parquet(fn: Union[str, P], fn_out: Optional[Union[str, P]
         df = df.reset_index(drop=True)
         df.to_parquet(fn_out)
     return str(fn_out)
+
+def convert_mzxml_to_parquet_pl(file_path: str, time_unit='min', remove_original: bool = False,
+                                tmp_dir: Optional[str] = None):
+    file_path = pathlib.Path(file_path)
+    # TODO: is this needed?
+    # T.fix_first_emtpy_line_after_upload_workaround(file_path)
+    from pyteomics import mzxml
+    import polars as pl
+
+    ms_level = 0
+    polarity = None
+    time_factor = 60 if time_unit in ['minutes', 'min'] else 1
+
+    with mzxml.read(file_path.as_posix()) as ms_file_data:
+        ms_data = []
+        for i, data in enumerate(ms_file_data, start=1):
+            ms_level = int(data.get("msLevel", 0))
+
+            filterLine_ELMAVEN = None
+            mz_precursor = None
+
+            if ms_level == 2:
+                polarity_str = 'Positive' if data.get("polarity") == '+' else 'Negative'
+                if not polarity:
+                    polarity = polarity_str
+                mz_precursor = float(data['precursorMz'][0]['precursorMz'])
+                mz = data["m/z array"][0]
+                filterLine_ELMAVEN = ' '.join([
+                    polarity_str,
+                    # 'ESI', 'SRM', 'ms2',
+                    f"{mz_precursor:.3f}",
+                    f"[{mz:.3f}]"
+                ])
+            ms_data.append(
+                dict(
+                    ms_file_label=file_path.stem,
+                    scan_id=int(data.get("num") or 0),  # scan id
+                    mz=[float(v) for v in data.get("m/z array", [])],  # mz
+                    intensity=[float(v) for v in data.get("intensity array", [])],  # intensity
+                    scan_time=float(data.get("retentionTime", 0.0)) * time_factor,  # scan time
+                    mz_precursor=mz_precursor,  # mz precursor
+                    filterLine=data.get("filterLine"),  # filter line
+                    filterLine_ELMAVEN=filterLine_ELMAVEN  # filter line ELMAVEN
+                )
+            )
+        df = pl.json_normalize(ms_data)
+        df = df.explode(["mz", "intensity"])
+
+        if not tmp_dir:
+            tmp_dir = tempfile.mkdtemp()
+        tmp_fn = pathlib.Path(tmp_dir, f"{file_path.stem}.parquet")
+        df.write_parquet(tmp_fn)
+        if remove_original:
+            os.remove(file_path)
+    return file_path, file_path.stem, ms_level, polarity, tmp_fn.as_posix()
