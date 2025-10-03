@@ -532,10 +532,10 @@ def convert_mzxml_to_parquet_pl(file_path: str, time_unit='min', remove_original
             filterLine_ELMAVEN = None
             mz_precursor = None
 
+            polarity_str = 'Positive' if data.get("polarity") == '+' else 'Negative'
+            if not polarity:
+                polarity = polarity_str
             if ms_level == 2:
-                polarity_str = 'Positive' if data.get("polarity") == '+' else 'Negative'
-                if not polarity:
-                    polarity = polarity_str
                 mz_precursor = float(data['precursorMz'][0]['precursorMz'])
                 mz = data["m/z array"][0]
                 filterLine_ELMAVEN = ' '.join([
