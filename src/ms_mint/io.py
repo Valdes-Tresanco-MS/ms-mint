@@ -556,8 +556,10 @@ def convert_mzxml_to_parquet_pl(file_path: str, time_unit='min', remove_original
                     filterLine_ELMAVEN=filterLine_ELMAVEN  # filter line ELMAVEN
                 )
             )
-        df = pl.json_normalize(ms_data)
+
+        df = pl.from_dicts(ms_data)
         df = df.explode(["mz", "intensity"])
+        df = df.sort('mz' if ms_level == 1 else 'filterLine')
 
         if not tmp_dir:
             tmp_dir = tempfile.mkdtemp()
