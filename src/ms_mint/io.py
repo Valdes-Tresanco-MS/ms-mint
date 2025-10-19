@@ -745,7 +745,7 @@ def _init_lists() -> Dict[str, List]:
 
 def convert_mzxml_to_parquet_fast_batches(
         file_path: str,
-        time_unit: str = "min",
+        time_unit: str = "s",
         remove_original: bool = False,
         tmp_dir: Optional[str] = None,
 ):
