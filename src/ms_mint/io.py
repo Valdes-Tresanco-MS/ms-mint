@@ -568,3 +568,283 @@ def convert_mzxml_to_parquet_pl(file_path: str, time_unit='min', remove_original
         if remove_original:
             os.remove(file_path)
     return file_path, file_path.stem, ms_level, polarity, tmp_fn.as_posix()
+
+
+import pyarrow as pa
+from pyarrow import parquet as pq
+import re
+import base64
+import zlib
+from pathlib import Path
+from typing import Dict, List, Optional, Any, Iterator
+
+
+_RT_SECONDS = re.compile(
+    r"^P(?:T(?:(?P<h>\d+(?:\.\d+)?)H)?(?:(?P<m>\d+(?:\.\d+)?)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)$",
+    re.I
+)
+
+def rt_to_seconds(val) -> float:
+    """Convierte retentionTime a segundos (si viene PT…); si ya es numérico, lo devuelve tal cual."""
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = (val or "").strip()
+    # si ya viene "0.12345" lo tomamos como segundos
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    m = _RT_SECONDS.match(s)
+    if not m:
+        return 0.0
+    h = float(m.group("h") or 0.0)
+    mi = float(m.group("m") or 0.0)
+    se = float(m.group("s") or 0.0)
+    return h*3600.0 + mi*60.0 + se
+
+
+def _decode_peaks_optimized(attrs: Dict[str, str], text: Optional[str]) -> tuple[np.ndarray, np.ndarray]:
+    """
+    OPTIMIZACIÓN CLAVE: Decodifica mz e intensity en UNA SOLA operación
+    usando structured arrays (como pyteomics).
+
+    Esto es ~2-3x más rápido que decodificar por separado.
+    """
+    if not text:
+        return np.array([], dtype=np.float32), np.array([], dtype=np.float32)
+
+    # Determinar dtype según precisión
+    dt = np.float32 if attrs.get("precision") == "32" else np.float64
+
+    # CLAVE: Crear structured dtype para ambos arrays (mz, intensity)
+    # byteorder '>' = big-endian (network byte order)
+    endian = ">" if attrs.get("byteOrder") in ("network", "big") else "<"
+    dtype = np.dtype([("mz", dt), ("intensity", dt)]).newbyteorder(endian)
+
+    # Decodificar base64
+    raw = base64.b64decode(text)
+
+    # Descomprimir si es necesario
+    if attrs.get("compressionType") == "zlib":
+        raw = zlib.decompress(raw)
+
+    # UNA SOLA conversión de bytes a arrays
+    arr = np.frombuffer(raw, dtype=dtype)
+
+    # Extraer campos del structured array (sin copia, solo vistas)
+    return arr["mz"], arr["intensity"]
+
+def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
+
+    from lxml import etree  # ← IMPORTACIÓN CRÍTICA
+
+    path = Path(path)
+
+    # CAMBIO CLAVE: lxml.etree con remove_comments=True
+    context = etree.iterparse(
+        path.as_posix(),
+        events=("start", "end"),
+        remove_comments=True,  # Acelera el parsing
+        huge_tree=False,       # Seguridad (default)
+    )
+
+    # Get root para limpiar memoria
+    _, root = next(context)
+
+    current: Dict[str, Any] = {}
+    have_peaks = False
+
+    for ev, elem in context:
+        # lxml usa .tag directamente (sin namespace por defecto en mzXML)
+        tag = elem.tag
+        if '}' in tag:  # Solo si hay namespace
+            tag = tag.rsplit("}", 1)[-1]
+
+        if ev == "start" and tag == "scan":
+            a = elem.attrib
+            current = {
+                "num": int(a.get("num", "0")),
+                "msLevel": int(a.get("msLevel", "0")),
+                "retentionTime": rt_to_seconds(a.get("retentionTime", "0")),
+                "polarity": (
+                    "Positive" if a.get("polarity") == "+"
+                    else ("Negative" if a.get("polarity") == "-" else None)
+                ),
+                "filterLine": a.get("filterLine"),
+            }
+            have_peaks = False
+
+        elif ev == "end" and tag == "precursorMz":
+            txt = (elem.text or "").strip()
+            if txt:
+                try:
+                    current["precursorMz"] = float(txt)
+                except ValueError:
+                    pass
+
+        elif ev == "end" and tag == "peaks":
+            if decode_binary:
+                # OPTIMIZACIÓN CLAVE: Usa la versión optimizada
+                mz, it = _decode_peaks_optimized(elem.attrib, (elem.text or "").strip() or None)
+                current["m/z array"] = mz
+                current["intensity array"] = it
+                have_peaks = True
+            else:
+                current["peaks"] = {"attrs": dict(elem.attrib), "text": elem.text}
+
+        elif ev == "end" and tag == "scan":
+            # ELMAVEN-like extra (opcional)
+            if current.get("msLevel") == 2 and have_peaks:
+                pol_str = current.get("polarity") or ""
+                prec = current.get("precursorMz")
+                mz_arr = current.get("m/z array", [])
+                mz0 = float(mz_arr[0]) if len(mz_arr) else None
+                if prec is not None and mz0 is not None:
+                    current["filterLine_ELMAVEN"] = f"{pol_str} {prec:.3f} [{mz0:.3f}]"
+
+            yield current
+            root.clear()  # libera memoria
+
+
+
+BATCH_SIZE_POINTS = 50_000_000
+
+
+def _build_table_from_lists(lists_dict: Dict[str, List], ms_level: int) -> pa.Table:
+    """Helper para convertir las listas actuales en un pa.Table."""
+    if ms_level == 1:
+        arrays_dict = {
+            'ms_file_label': pa.array(lists_dict['labels'], type=pa.string()),
+            'scan_id': pa.array(lists_dict['scan_ids'], type=pa.int32()),
+            'mz': pa.array(lists_dict['mzs'], type=pa.float64()),
+            'intensity': pa.array(lists_dict['intensities'], type=pa.float64()),
+            'scan_time': pa.array(lists_dict['scan_times'], type=pa.float64()),
+        }
+    else:  # MS2
+        arrays_dict = {
+            'ms_file_label': pa.array(lists_dict['labels'], type=pa.string()),
+            'scan_id': pa.array(lists_dict['scan_ids'], type=pa.int32()),
+            'mz': pa.array(lists_dict['mzs'], type=pa.float64()),
+            'intensity': pa.array(lists_dict['intensities'], type=pa.float64()),
+            'scan_time': pa.array(lists_dict['scan_times'], type=pa.float64()),
+            'mz_precursor': pa.array(lists_dict['mz_precursors'], type=pa.float64()),
+            'filterLine': pa.array(lists_dict['filterLines'], type=pa.string()),
+            'filterLine_ELMAVEN': pa.array(lists_dict['filterLines_ELMAVEN'], type=pa.string()),
+        }
+    return pa.Table.from_pydict(arrays_dict)
+
+
+def _init_lists() -> Dict[str, List]:
+    """Helper para inicializar/resetear las listas."""
+    return {
+        'labels': [], 'scan_ids': [], 'scan_times': [],
+        'mzs': [], 'intensities': [],
+        'mz_precursors': [], 'filterLines': [], 'filterLines_ELMAVEN': []
+    }
+
+
+def convert_mzxml_to_parquet_fast_batches(
+        file_path: str,
+        time_unit: str = "min",
+        remove_original: bool = False,
+        tmp_dir: Optional[str] = None,
+):
+
+    file_path = Path(file_path)
+    time_factor = 60.0 if time_unit == "min" else 1.0
+    file_stem = file_path.stem
+
+    # --- INICIO LÓGICA DE LOTES ---
+    table_batches = []
+    current_lists = _init_lists()
+    # --- FIN LÓGICA DE LOTES ---
+
+    ms_level = None
+    polarity = None
+    first_scan = True
+
+    total_points = 0  # Contador para los lotes
+
+    for data in iter_mzxml_fast(file_path.as_posix(), decode_binary=True):
+        mz_arr = data.get("m/z array")
+        if mz_arr is None or len(mz_arr) == 0:
+            continue
+
+        inten_arr = data.get("intensity array")
+        n_points = len(mz_arr)
+        total_points += n_points
+
+        if first_scan:
+            ms_level = int(data.get("msLevel", 0))
+            polarity = "Positive" if data.get("polarity") == "+" else "Negative"
+            first_scan = False
+
+        scan_id = int(data.get("num", 0))
+        scan_time = float(data.get("retentionTime", 0.0)) * time_factor
+
+        current_lists['labels'].extend([file_stem] * n_points)
+        current_lists['scan_ids'].extend([scan_id] * n_points)
+        current_lists['scan_times'].extend([scan_time] * n_points)
+        current_lists['mzs'].extend(mz_arr)
+        current_lists['intensities'].extend(inten_arr)
+
+        if ms_level == 2:
+            mz_prec = None
+            fline = data.get("filterLine")
+            fline_elm = None
+            try:
+                mz_prec = float(data["precursorMz"][0]["precursorMz"])
+                if mz_prec is not None and n_points > 0:
+                    fline_elm = f"{polarity} {mz_prec:.3f} [{mz_arr[0]:.3f}]"
+            except (KeyError, IndexError, TypeError):
+                pass
+            current_lists['mz_precursors'].extend([mz_prec] * n_points)
+            current_lists['filterLines'].extend([fline] * n_points)
+            current_lists['filterLines_ELMAVEN'].extend([fline_elm] * n_points)
+        else:
+            current_lists['mz_precursors'].extend([None] * n_points)
+            current_lists['filterLines'].extend([None] * n_points)
+            current_lists['filterLines_ELMAVEN'].extend([None] * n_points)
+
+
+        # --- INICIO LÓGICA DE LOTES ---
+        # Comprobar si el lote actual ha superado el umbral
+        if total_points > BATCH_SIZE_POINTS:
+            table_batches.append(_build_table_from_lists(current_lists, ms_level))
+            # Resetear listas y contador
+            current_lists = _init_lists()
+            total_points = 0
+        # --- FIN LÓGICA DE LOTES ---
+
+    # --- INICIO LÓGICA DE LOTES ---
+    # Añadir el último lote si queda algo
+    if total_points > 0:
+        table_batches.append(_build_table_from_lists(current_lists, ms_level))
+
+    # Si no se leyó nada (archivo vacío o inválido)
+    if not table_batches:
+        print(f"Advertencia: No se encontraron datos válidos en {file_path}")
+        # Retornar con valores nulos o manejar como error
+        return 0, file_path, file_stem, 1, "Unknown", None
+
+    table = pa.concat_tables(table_batches)
+
+    if ms_level is None: ms_level = 1
+    if polarity is None: polarity = "Unknown"
+
+    if not tmp_dir:
+        tmp_dir = tempfile.mkdtemp()
+    tmp_fn = pathlib.Path(tmp_dir, f"{file_stem}.parquet")
+
+    pq.write_table(
+        table,
+        tmp_fn,
+    )
+
+    if remove_original:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+
+    return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix()
