@@ -836,6 +836,13 @@ def convert_mzxml_to_parquet_fast_batches(
         tmp_dir = tempfile.mkdtemp()
     tmp_fn = pathlib.Path(tmp_dir, f"{file_stem}.parquet")
 
+    if ms_level == 1:
+        indices = pa.compute.sort_indices(table, sort_keys=[("mz", "ascending")])
+        table = pa.compute.take(table, indices)
+    elif ms_level == 2:
+        indices = pa.compute.sort_indices(table, sort_keys=[("filterLine", "ascending")])
+        table = pa.compute.take(table, indices)
+
     pq.write_table(
         table,
         tmp_fn,
