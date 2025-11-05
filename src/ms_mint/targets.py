@@ -94,8 +94,8 @@ def standardize_targets(targets: pd.DataFrame, ms_mode: str = "neutral", filenam
         targets["bookmark"] = 0
     if "score" not in cols:
         targets["score"] = 0
-    if "preselected_processing" not in cols:
-        targets["preselected_processing"] = True
+    if "peak_selection" not in cols:
+        targets["peak_selection"] = True
 
     # Standardize time units use SI abbreviations
     targets["rt_unit"] = targets["rt_unit"].replace("m", "min")

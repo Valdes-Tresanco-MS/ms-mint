@@ -21,7 +21,7 @@ TARGETS_COLUMNS = [
     "ms_type",
     "category",
     "score",
-    "preselected_processing",
+    "peak_selection",
     "bookmark",
     "source",
 ]
