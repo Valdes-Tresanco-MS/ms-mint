@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel", "setuptools_scm"]
+requires = ["setuptools>=64.0.0", "wheel", "versioneer[toml]"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -69,10 +69,12 @@ ms-mint-convert = "ms_mint.scripts.ms_mint_convert:main"
 where = ["src"]
 include = ["ms_mint*"]
 
-[tool.setuptools_scm]
-write_to = "src/ms_mint/_version.py"
-version_scheme = "guess-next-dev"
-local_scheme = "dirty-tag"
+[tool.versioneer]
+VCS = "git"
+style = "pep440"
+versionfile_source = "src/ms_mint/_version.py"
+tag_prefix = "v"
+parentdir_prefix = ""
 
 [tool.pytest]
 addopts = "--maxfail=1 --disable-warnings"
