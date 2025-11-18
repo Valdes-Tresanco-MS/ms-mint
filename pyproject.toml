@@ -20,31 +20,25 @@ classifiers = [
 ]
 
 dependencies = [
-  "six",
-  "jsonschema",
-  "entrypoints",
-  "pygments",
-  "pexpect",
-  "decorator",
-  "pillow",
-  "lxml",
+  "numpy",
   "pandas",
+  "scipy",
   "matplotlib",
   "seaborn",
+  "plotly",
+  "lxml",
   "pyteomics",
+  "polars",
+  "pyarrow",
+  "openpyxl",
   "scikit-learn",
   "molmass",
-  "pymzml",
-  "plotly",
+  "h5py",
   "colorlover",
   "tqdm",
   "ipywidgets",
   "ipyfilechooser",
-  "openpyxl",
-  "pyarrow",
-  "tables",
-  "h5py",
-  "hdf5plugin"
+  "ipython"
 ]
 dynamic = ["version"]
 
