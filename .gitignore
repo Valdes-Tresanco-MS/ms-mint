@@ -22,3 +22,4 @@ app.db
 docs/_*
 HILICNeg15_StdH1.feather
 *_version.py
+tests/test_MS1/*
